@@ -11,10 +11,11 @@ import yaml
 import torch.nn.parallel
 import numpy as np  
 import torchvision.transforms as transforms 
-  
 from torch.optim import lr_scheduler
 from tqdm import tqdm
 from utils import  save_checkpoint  
+import torch.nn.init as init
+import torch.nn as nn
 
 import archs
 import losses
@@ -26,13 +27,14 @@ ARCH_NAMES = archs.__all__
 LOSS_NAMES = losses.__all__
 LOSS_NAMES.append('BCEWithLogitsLoss')
 
+# os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--name', default='AtriaSeg_16',
                         help='experiment name')
-    parser.add_argument('--model_save_dir', default='/users-2/jianfeng/bayes/')
+    parser.add_argument('--model_save_dir', default='users-2/jianfeng/bayes/')
     parser.add_argument('--epochs', default=160, type=int, metavar='N',
                         help='number of total epochs to run')
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
@@ -80,6 +82,8 @@ def parse_args():
                         help='image file extension')
     parser.add_argument('--mask_ext', default='png',
                         help='mask file extension')
+    parser.add_argument('--seed', default='0', type=int,
+                        help='seed value')
 
   
 
@@ -105,7 +109,7 @@ def parse_args():
     parser.add_argument('--early_stopping', default=-1, type=int,
                         metavar='N', help='early stopping (default: -1)')
     
-    parser.add_argument('--num_workers', default=4, type=int)
+    parser.add_argument('--num_workers', default=2, type=int)
 
     config = parser.parse_args()
 
@@ -175,7 +179,7 @@ def train(config, train_loader, model, model_seg, criterion, optimizer, epoch):
 
         if epoch > int(config['epochs']/2):
            with torch.no_grad():
-                  output, _, _, _, _ = model(input_, M = config['M'])
+                  output, _, _, _, _ = model(input_)
 
            out_seg = model_seg(input_)
 
@@ -232,6 +236,7 @@ def train(config, train_loader, model, model_seg, criterion, optimizer, epoch):
 
         else:
               output, mean, covar, x_ori, Z = model(input_)
+              print(output, mean, covar, x_ori, Z)
              
               recon = F.mse_loss(x_ori, input_, reduction='sum')/(x_ori.size(-1)*x_ori.size(-2)*x_ori.size(-3))
  
@@ -377,7 +382,7 @@ def validate(config, val_loader, model, model_seg, criterion, epoch):
 
 def main():
     config = vars(parse_args())
-    seed = 0
+    seed = config['seed']
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.benchmark = True
@@ -414,6 +419,9 @@ def main():
 
     model_seg = torch.nn.DataParallel(model_seg).cuda()
     model = torch.nn.DataParallel(model).cuda()
+
+    # model_seg = model_seg.cuda()
+    # model = model.cuda()
        
 
     params = filter(lambda p: p.requires_grad, model.parameters())
@@ -562,7 +570,7 @@ def main():
                                  (config['model_save_dir'], config['name']), index=False)
 
         trigger += 1
-        if epoch > int(config['epochs']/2):
+        if epoch == 45:
             best_iou = val_log['iou']
         
             save_checkpoint({
